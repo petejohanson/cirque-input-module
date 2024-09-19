@@ -16,3 +16,10 @@ properties:
       - 3x
       - 4x
     description: ADC attenuation (sensitivity) setting.
+  x-axis-z-min:
+    type: int
+    default: 5
+  y-axis-z-min:
+    type: int
+    default: 4
+
