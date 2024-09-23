@@ -114,13 +114,15 @@ static int pinnacle_spi_write(const struct device *dev, const uint8_t addr, cons
 }
 #endif // DT_ANY_INST_ON_BUS_STATUS_OKAY(spi)
 
-static void set_int(const struct device *dev, const bool en) {
+static int set_int(const struct device *dev, const bool en) {
     const struct pinnacle_config *config = dev->config;
     int ret = gpio_pin_interrupt_configure_dt(&config->dr,
                                               en ? GPIO_INT_EDGE_TO_ACTIVE : GPIO_INT_DISABLE);
     if (ret < 0) {
         LOG_ERR("can't set interrupt");
     }
+
+    return ret;
 }
 
 static int pinnacle_clear_status(const struct device *dev) {
@@ -510,7 +512,6 @@ static int pinnacle_pm_action(const struct device *dev, enum pm_device_action ac
     switch (action) {
     case PM_DEVICE_ACTION_SUSPEND:
         return set_int(dev, false);
-        return 0;
     case PM_DEVICE_ACTION_RESUME:
         return set_int(dev, true);
     default:
