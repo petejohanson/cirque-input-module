@@ -17,6 +17,7 @@
 #define PINNACLE_STATUS1_SW_DR BIT(2)
 #define PINNACLE_STATUS1_SW_CC BIT(3)
 #define PINNACLE_SYS_CFG 0x03 // Contains system operation and configuration bits.
+#define PINNACLE_SYS_CFG_EN_SLEEP_BIT 2
 #define PINNACLE_SYS_CFG_EN_SLEEP BIT(2)
 #define PINNACLE_SYS_CFG_SHUTDOWN BIT(1)
 #define PINNACLE_SYS_CFG_RESET BIT(0)
@@ -104,3 +105,5 @@ struct pinnacle_config {
     uint8_t x_axis_z_min, y_axis_z_min;
     const struct gpio_dt_spec dr;
 };
+
+int pinnacle_set_sleep(const struct device *dev, bool enabled);

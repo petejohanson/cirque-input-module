@@ -10,3 +10,15 @@ menuconfig INPUT_PINNACLE
     depends on DT_HAS_CIRQUE_PINNACLE_ENABLED
     help
       Enable driver for Cirque Pinnacle trackpads
+
+if INPUT_PINNACLE
+
+if ZMK_MOUSE
+
+config ZMK_INPUT_PINNACLE_IDLE_SLEEPER
+    bool "Pinnacle Sleep linked to ZMK idle state"
+    default y
+
+endif
+
+endif

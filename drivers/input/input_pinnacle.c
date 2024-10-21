@@ -394,6 +394,30 @@ static int pinnacle_force_recalibrate(const struct device *dev) {
     return ret;
 }
 
+int pinnacle_set_sleep(const struct device *dev, bool enabled) {
+    uint8_t sys_cfg;
+    int ret = pinnacle_seq_read(dev, PINNACLE_SYS_CFG, &sys_cfg, 1);
+    if (ret < 0) {
+        LOG_ERR("can't read sys config %d", ret);
+        return ret;
+    }
+
+    if (((sys_cfg & PINNACLE_SYS_CFG_EN_SLEEP) != 0) == enabled) {
+        return 0;
+    }
+
+    LOG_DBG("Setting sleep: %s", (enabled ? "on" : "off"));
+    WRITE_BIT(sys_cfg, PINNACLE_SYS_CFG_EN_SLEEP_BIT, enabled ? 1 : 0);
+
+    ret = pinnacle_write(dev, PINNACLE_SYS_CFG, sys_cfg);
+    if (ret < 0) {
+        LOG_ERR("can't write sleep config %d", ret);
+        return ret;
+    }
+
+    return ret;
+}
+
 static int pinnacle_init(const struct device *dev) {
     struct pinnacle_data *data = dev->data;
     const struct pinnacle_config *config = dev->config;
@@ -445,9 +469,8 @@ static int pinnacle_init(const struct device *dev) {
     }
 
     if (config->sleep_en) {
-        ret = pinnacle_write(dev, PINNACLE_SYS_CFG, PINNACLE_SYS_CFG_EN_SLEEP);
+        ret = pinnacle_set_sleep(dev, true);
         if (ret < 0) {
-            LOG_ERR("can't write %d", ret);
             return ret;
         }
     }
