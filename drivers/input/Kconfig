@@ -13,11 +13,15 @@ menuconfig INPUT_PINNACLE
 
 if INPUT_PINNACLE
 
+config INPUT_PINNACLE_INIT_PRIORITY
+    int "Cirque Pinnacle initialization priority"
+    default INPUT_INIT_PRIORITY
+
 if ZMK_MOUSE
 
 config ZMK_INPUT_PINNACLE_IDLE_SLEEPER
     bool "Pinnacle Sleep linked to ZMK idle state"
-    default y
+    default n
 
 endif
 

@@ -565,6 +565,6 @@ static int pinnacle_pm_action(const struct device *dev, enum pm_device_action ac
     };                                                                                             \
     PM_DEVICE_DT_INST_DEFINE(n, pinnacle_pm_action);                                               \
     DEVICE_DT_INST_DEFINE(n, pinnacle_init, PM_DEVICE_DT_INST_GET(n), &pinnacle_data_##n,          \
-                          &pinnacle_config_##n, POST_KERNEL, CONFIG_INPUT_INIT_PRIORITY, NULL);
+                          &pinnacle_config_##n, POST_KERNEL, CONFIG_INPUT_PINNACLE_INIT_PRIORITY, NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(PINNACLE_INST)
