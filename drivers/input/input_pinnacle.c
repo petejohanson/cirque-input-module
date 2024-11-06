@@ -103,7 +103,7 @@ static int pinnacle_spi_write(const struct device *dev, const uint8_t addr, cons
         LOG_ERR("spi ret: %d", ret);
     }
 
-    if (rx_buffer[1] != PINNACLE_FILLER) {
+    if (rx_buffer[1] != PINNACLE_FILLER && rx_buffer[1] != PINNACLE_WAKE_FILLER) {
         LOG_ERR("bad ret val %d - %d", rx_buffer[0], rx_buffer[1]);
         return -EIO;
     }
@@ -394,52 +394,10 @@ static int pinnacle_force_recalibrate(const struct device *dev) {
     return ret;
 }
 
-int pinnacle_set_sleep(const struct device *dev, bool enabled) {
-    uint8_t sys_cfg;
-    int ret = pinnacle_seq_read(dev, PINNACLE_SYS_CFG, &sys_cfg, 1);
-    if (ret < 0) {
-        LOG_ERR("can't read sys config %d", ret);
-        return ret;
-    }
-
-    if (((sys_cfg & PINNACLE_SYS_CFG_EN_SLEEP) != 0) == enabled) {
-        return 0;
-    }
-
-    LOG_DBG("Setting sleep: %s", (enabled ? "on" : "off"));
-    WRITE_BIT(sys_cfg, PINNACLE_SYS_CFG_EN_SLEEP_BIT, enabled ? 1 : 0);
-
-    ret = pinnacle_write(dev, PINNACLE_SYS_CFG, sys_cfg);
-    if (ret < 0) {
-        LOG_ERR("can't write sleep config %d", ret);
-        return ret;
-    }
-
-    return ret;
-}
-
-static int pinnacle_init(const struct device *dev) {
-    struct pinnacle_data *data = dev->data;
+static int pinnacle_reset_and_init(const struct device *dev) {
     const struct pinnacle_config *config = dev->config;
-    int ret;
 
-    uint8_t fw_id[2];
-    ret = pinnacle_seq_read(dev, PINNACLE_FW_ID, fw_id, 2);
-    if (ret < 0) {
-        LOG_ERR("Failed to get the FW ID %d", ret);
-    }
-
-    LOG_DBG("Found device with FW ID: 0x%02x, Version: 0x%02x", fw_id[0], fw_id[1]);
-
-    data->in_int = false;
-    k_msleep(10);
-    ret = pinnacle_write(dev, PINNACLE_STATUS1, 0); // Clear CC
-    if (ret < 0) {
-        LOG_ERR("can't write %d", ret);
-        return ret;
-    }
-    k_usleep(50);
-    ret = pinnacle_write(dev, PINNACLE_SYS_CFG, PINNACLE_SYS_CFG_RESET);
+    int ret = pinnacle_write(dev, PINNACLE_SYS_CFG, PINNACLE_SYS_CFG_RESET);
     if (ret < 0) {
         LOG_ERR("can't reset %d", ret);
         return ret;
@@ -508,6 +466,154 @@ static int pinnacle_init(const struct device *dev) {
         return ret;
     }
 
+    return ret;
+}
+
+int pinnacle_set_sleep(const struct device *dev, bool enabled) {
+    struct pinnacle_data *data = dev->data;
+    int ret;
+
+    if (data->sleep_enabled == enabled) {
+        LOG_DBG("Skipping settings sleep to %s, already in that config state", (enabled ? "yes" : "no"));
+        return 0;
+    }
+
+    if (enabled) {
+        LOG_DBG("WRITING THE CONFIG!");
+
+        uint8_t sys_cfg;
+        ret = pinnacle_seq_read(dev, PINNACLE_SYS_CFG, &sys_cfg, 1);
+        if (ret < 0) {
+            LOG_ERR("can't read sys config %d", ret);
+            return ret;
+        }
+
+        LOG_HEXDUMP_DBG(&sys_cfg, 1, "SysConfig1 before enabling sleep");
+
+        ret = pinnacle_write(dev, PINNACLE_SYS_CFG, PINNACLE_SYS_CFG_EN_SLEEP);
+        if (ret < 0) {
+            LOG_WRN("can't write sleep config %d", ret);
+        }
+
+        k_msleep(2);
+
+        ret = pinnacle_seq_read(dev, PINNACLE_SYS_CFG, &sys_cfg, 1);
+        if (ret < 0) {
+            LOG_ERR("can't read sys config %d", ret);
+            return ret;
+        }
+
+        LOG_HEXDUMP_DBG(&sys_cfg, 1, "SysConfig1 after enabling sleep");
+
+        pinnacle_clear_status(dev);
+    } else {
+        uint8_t sys_cfg;
+        ret = pinnacle_seq_read(dev, PINNACLE_SYS_CFG, &sys_cfg, 1);
+        if (ret < 0) {
+            LOG_ERR("can't read sys config %d", ret);
+            return ret;
+        }
+
+        LOG_HEXDUMP_DBG(&sys_cfg, 1, "Read SysConfig1");
+
+        // First, we try to just clear the en_sleep flag if we have it enabled but the
+        // device is still awake.
+        if ((sys_cfg & PINNACLE_SYS_CFG_EN_SLEEP) == PINNACLE_SYS_CFG_EN_SLEEP) {
+            ret = pinnacle_write(dev, PINNACLE_SYS_CFG, 0x0);
+            if (ret < 0) {
+                LOG_WRN("can't clear sleep config %d", ret);
+            }
+
+            ret = pinnacle_seq_read(dev, PINNACLE_SYS_CFG, &sys_cfg, 1);
+            if (ret < 0) {
+                LOG_ERR("can't read sys config %d", ret);
+                return ret;
+            }
+
+            if (sys_cfg == 0) {
+                LOG_DBG("Properly cleared en_sleep bit, pinnacle is awake");
+
+                pinnacle_clear_status(dev);
+                data->sleep_enabled = false;
+                return 0;
+            }
+        }
+
+        pinnacle_write(dev, PINNACLE_SYS_CFG, (PINNACLE_SYS_CFG_FORCE_WAKE_UP | PINNACLE_SYS_CFG_WAKE_UP_TOGGLE));
+
+        bool bit_got_got = false;
+        for (int tries = 5; tries > 0; tries--) {
+            ret = pinnacle_seq_read(dev, PINNACLE_SYS_CFG, &sys_cfg, 1);
+            if (ret < 0) {
+                LOG_ERR("can't read sys config %d", ret);
+                return ret;
+            }
+
+            LOG_HEXDUMP_DBG(&sys_cfg, 1, "Post force wake-up SysConfig1");
+
+            if ((sys_cfg & (PINNACLE_SYS_CFG_FORCE_WAKE_UP)) == PINNACLE_SYS_CFG_FORCE_WAKE_UP) {
+                bit_got_got = true;
+                break;
+            }
+
+            pinnacle_write(dev, PINNACLE_SYS_CFG, (PINNACLE_SYS_CFG_FORCE_WAKE_UP | PINNACLE_SYS_CFG_WAKE_UP_TOGGLE));
+
+
+            k_msleep(2);
+        }
+
+        if (!bit_got_got) {
+            LOG_ERR("Failed to force wake up the pinnacle device");
+            return -ETIMEDOUT;
+        }
+
+        if (!bit_got_got) {
+            LOG_ERR("Failed to wake up toggle the pinnacle device");
+            return -ETIMEDOUT;
+        }
+
+        ret = pinnacle_reset_and_init(dev);
+        if (ret < 0) {
+            LOG_WRN("Failed to reset and init (%d)", ret);
+            return ret;
+        }
+
+        pinnacle_clear_status(dev);
+    }
+
+    data->sleep_enabled = enabled;
+
+    return ret;
+}
+
+static int pinnacle_init(const struct device *dev) {
+    struct pinnacle_data *data = dev->data;
+    const struct pinnacle_config *config = dev->config;
+    int ret;
+
+    uint8_t fw_id[2];
+    ret = pinnacle_seq_read(dev, PINNACLE_FW_ID, fw_id, 2);
+    if (ret < 0) {
+        LOG_ERR("Failed to get the FW ID %d", ret);
+    }
+
+    LOG_DBG("Found device with FW ID: 0x%02x, Version: 0x%02x", fw_id[0], fw_id[1]);
+
+    data->in_int = false;
+    k_msleep(10);
+    ret = pinnacle_write(dev, PINNACLE_STATUS1, 0); // Clear CC
+    if (ret < 0) {
+        LOG_ERR("can't write %d", ret);
+        return ret;
+    }
+    k_usleep(50);
+
+    ret = pinnacle_reset_and_init(dev);
+    if (ret < 0) {
+        LOG_WRN("Couldn't reset and init %d", ret);
+        return ret;
+    }
+
     data->dev = dev;
 
     pinnacle_clear_status(dev);
@@ -522,7 +628,7 @@ static int pinnacle_init(const struct device *dev) {
 
     k_work_init(&data->work, pinnacle_work_cb);
 
-    pinnacle_write(dev, PINNACLE_FEED_CFG1, feed_cfg1);
+    pinnacle_write(dev, PINNACLE_FEED_CFG1, PINNACLE_FEED_CFG1_EN_FEED);
 
     set_int(dev, true);
 
