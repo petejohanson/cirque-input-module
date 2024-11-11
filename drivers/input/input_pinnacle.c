@@ -495,7 +495,7 @@ int pinnacle_set_sleep(const struct device *dev, bool enabled) {
             LOG_WRN("can't write sleep config %d", ret);
         }
 
-        k_msleep(2);
+        k_msleep(20);
 
         ret = pinnacle_seq_read(dev, PINNACLE_SYS_CFG, &sys_cfg, 1);
         if (ret < 0) {
@@ -559,7 +559,7 @@ int pinnacle_set_sleep(const struct device *dev, bool enabled) {
             pinnacle_write(dev, PINNACLE_SYS_CFG, (PINNACLE_SYS_CFG_FORCE_WAKE_UP | PINNACLE_SYS_CFG_WAKE_UP_TOGGLE));
 
 
-            k_msleep(2);
+            k_msleep(10);
         }
 
         if (!bit_got_got) {
