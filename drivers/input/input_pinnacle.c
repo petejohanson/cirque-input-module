@@ -500,6 +500,13 @@ static int pinnacle_init(const struct device *dev) {
         return ret;
     }
     uint8_t feed_cfg1 = PINNACLE_FEED_CFG1_EN_FEED;
+    if (config->x_invert) {
+        feed_cfg1 |= PINNACLE_FEED_CFG1_INV_X;
+    }
+
+    if (config->y_invert) {
+        feed_cfg1 |= PINNACLE_FEED_CFG1_INV_Y;
+    }
     if (feed_cfg1) {
         ret = pinnacle_write(dev, PINNACLE_FEED_CFG1, feed_cfg1);
     }
@@ -556,6 +563,8 @@ static int pinnacle_pm_action(const struct device *dev, enum pm_device_action ac
                                                          0)},                                      \
                      .seq_read = pinnacle_spi_seq_read, .write = pinnacle_spi_write)),             \
         .rotate_90 = DT_INST_PROP(n, rotate_90),                                                   \
+        .x_invert = DT_INST_PROP(n, x_invert),                                                     \
+        .y_invert = DT_INST_PROP(n, y_invert),                                                     \
         .sleep_en = DT_INST_PROP(n, sleep),                                                        \
         .no_taps = DT_INST_PROP(n, no_taps),                                                       \
         .x_axis_z_min = DT_INST_PROP_OR(n, x_axis_z_min, 5),                                       \

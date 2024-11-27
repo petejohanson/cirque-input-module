@@ -4,6 +4,10 @@ properties:
     description: Data ready pin for the trackpad
   rotate-90:
     type: boolean
+  x-invert:
+    type: boolean
+  y-invert:
+    type: boolean
   sleep:
     type: boolean
   no-taps:
