@@ -241,7 +241,8 @@ static void pinnacle_report_data(const struct device *dev) {
 
     LOG_HEXDUMP_DBG(packet, 1, "Pinnacle Status1");
 
-    if (!(packet[0] & PINNACLE_STATUS1_SW_DR)) {
+    // Ignore 0xFF packets that indicate communcation failure, or if SW_DR isn't asserted
+    if (packet[0] == 0xFF || !(packet[0] & PINNACLE_STATUS1_SW_DR)) {
         return;
     }
     ret = pinnacle_seq_read(dev, PINNACLE_2_2_PACKET0, packet, 3);
