@@ -492,6 +492,11 @@ static int pinnacle_init(const struct device *dev) {
     if (config->no_taps) {
         feed_cfg2 |= PINNACLE_FEED_CFG2_DIS_TAP;
     }
+
+    if (config->no_secondary_tap) {
+        feed_cfg2 |= PINNACLE_FEED_CFG2_DIS_SEC;
+    }
+
     if (config->rotate_90) {
         feed_cfg2 |= PINNACLE_FEED_CFG2_ROTATE_90;
     }
@@ -568,6 +573,7 @@ static int pinnacle_pm_action(const struct device *dev, enum pm_device_action ac
         .y_invert = DT_INST_PROP(n, y_invert),                                                     \
         .sleep_en = DT_INST_PROP(n, sleep),                                                        \
         .no_taps = DT_INST_PROP(n, no_taps),                                                       \
+        .no_secondary_tap = DT_INST_PROP(n, no_secondary_tap),                                     \
         .x_axis_z_min = DT_INST_PROP_OR(n, x_axis_z_min, 5),                                       \
         .y_axis_z_min = DT_INST_PROP_OR(n, y_axis_z_min, 4),                                       \
         .sensitivity = DT_INST_ENUM_IDX_OR(n, sensitivity, PINNACLE_SENSITIVITY_1X),               \
@@ -575,6 +581,7 @@ static int pinnacle_pm_action(const struct device *dev, enum pm_device_action ac
     };                                                                                             \
     PM_DEVICE_DT_INST_DEFINE(n, pinnacle_pm_action);                                               \
     DEVICE_DT_INST_DEFINE(n, pinnacle_init, PM_DEVICE_DT_INST_GET(n), &pinnacle_data_##n,          \
-                          &pinnacle_config_##n, POST_KERNEL, CONFIG_INPUT_PINNACLE_INIT_PRIORITY, NULL);
+                          &pinnacle_config_##n, POST_KERNEL, CONFIG_INPUT_PINNACLE_INIT_PRIORITY,  \
+                          NULL);
 
 DT_INST_FOREACH_STATUS_OKAY(PINNACLE_INST)

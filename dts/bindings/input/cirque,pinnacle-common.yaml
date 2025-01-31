@@ -10,6 +10,8 @@ properties:
     type: boolean
   sleep:
     type: boolean
+  no-secondary-tap:
+    type: boolean
   no-taps:
     type: boolean
   sensitivity:
