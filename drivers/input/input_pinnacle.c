@@ -229,29 +229,23 @@ static int pinnacle_era_write(const struct device *dev, const uint16_t addr, uin
     return ret;
 }
 
+struct pinnacle_packets {
+    uint8_t packets[3];
+};
+
+K_MSGQ_DEFINE(packet_msg_q, sizeof(struct pinnacle_packets), 10, 4);
+
 static void pinnacle_report_data(const struct device *dev) {
     const struct pinnacle_config *config = dev->config;
-    uint8_t packet[3];
     int ret;
-    ret = pinnacle_seq_read(dev, PINNACLE_STATUS1, packet, 1);
-    if (ret < 0) {
-        LOG_ERR("read status: %d", ret);
+
+    struct pinnacle_packets item;
+
+    if (k_msgq_get(&packet_msg_q, &item, K_NO_WAIT) < 0) {
         return;
     }
 
-    LOG_HEXDUMP_DBG(packet, 1, "Pinnacle Status1");
-
-    // Ignore 0xFF packets that indicate communcation failure, or if SW_DR isn't asserted
-    if (packet[0] == 0xFF || !(packet[0] & PINNACLE_STATUS1_SW_DR)) {
-        return;
-    }
-    ret = pinnacle_seq_read(dev, PINNACLE_2_2_PACKET0, packet, 3);
-    if (ret < 0) {
-        LOG_ERR("read packet: %d", ret);
-        return;
-    }
-
-    LOG_HEXDUMP_DBG(packet, 3, "Pinnacle Packets");
+    uint8_t *packet = item.packets;
 
     struct pinnacle_data *data = dev->data;
     uint8_t btn = packet[0] &
@@ -298,6 +292,36 @@ static void pinnacle_work_cb(struct k_work *work) {
 static void pinnacle_gpio_cb(const struct device *port, struct gpio_callback *cb, uint32_t pins) {
     struct pinnacle_data *data = CONTAINER_OF(cb, struct pinnacle_data, gpio_cb);
     data->in_int = true;
+
+    uint8_t status;
+    int ret;
+    ret = pinnacle_seq_read(data->dev, PINNACLE_STATUS1, &status, 1);
+    if (ret < 0) {
+        LOG_ERR("read status: %d", ret);
+        return;
+    }
+
+    LOG_HEXDUMP_DBG(&status, 1, "Pinnacle Status1");
+
+    // Ignore 0xFF packets that indicate communication failure, or if SW_DR isn't asserted
+    if (status == 0xFF || !(status & PINNACLE_STATUS1_SW_DR)) {
+        return;
+    }
+
+    struct pinnacle_packets packets;
+
+    ret = pinnacle_seq_read(data->dev, PINNACLE_2_2_PACKET0, packets.packets, 3);
+    if (ret < 0) {
+        LOG_ERR("read packet: %d", ret);
+        return;
+    }
+
+    ret = k_msgq_put(&packet_msg_q, &packets, K_NO_WAIT);
+    if (ret < 0) {
+        LOG_WRN("Failed to push the packets!");
+        return;
+    }
+
     k_work_submit(&data->work);
 }
 
@@ -423,6 +447,8 @@ static int pinnacle_init(const struct device *dev) {
     struct pinnacle_data *data = dev->data;
     const struct pinnacle_config *config = dev->config;
     int ret;
+
+    k_sleep(K_MSEC(500));
 
     uint8_t fw_id[2];
     ret = pinnacle_seq_read(dev, PINNACLE_FW_ID, fw_id, 2);
