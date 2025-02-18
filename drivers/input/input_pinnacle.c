@@ -297,6 +297,8 @@ static void pinnacle_work_cb(struct k_work *work) {
 
 static void pinnacle_gpio_cb(const struct device *port, struct gpio_callback *cb, uint32_t pins) {
     struct pinnacle_data *data = CONTAINER_OF(cb, struct pinnacle_data, gpio_cb);
+
+    LOG_DBG("HW DR asserted");
     data->in_int = true;
     k_work_submit(&data->work);
 }
