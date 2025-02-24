@@ -229,7 +229,73 @@ static int pinnacle_era_write(const struct device *dev, const uint16_t addr, uin
     return ret;
 }
 
-static void pinnacle_report_data(const struct device *dev) {
+static void pinnacle_report_data_abs(const struct device *dev) {
+    const struct pinnacle_config *config = dev->config;
+    uint8_t packet[6];
+    int ret;
+    ret = pinnacle_seq_read(dev, PINNACLE_STATUS1, packet, 1);
+    if (ret < 0) {
+        LOG_ERR("read status: %d", ret);
+        return;
+    }
+    if (!(packet[0] & PINNACLE_STATUS1_SW_DR)) {
+        return;
+    }
+    ret = pinnacle_seq_read(dev, PINNACLE_2_2_PACKET0, packet, 6);
+    if (ret < 0) {
+        LOG_ERR("read packet: %d", ret);
+        return;
+    }
+    struct pinnacle_data *data = dev->data;
+    // TODO: Enable SW3-SW5 as well
+    uint8_t btn = packet[0] &
+                  (PINNACLE_PACKET0_BTN_PRIM | PINNACLE_PACKET0_BTN_SEC | PINNACLE_PACKET0_BTN_AUX);
+    uint8_t x_low = packet[2];
+    uint8_t y_low = packet[3];
+    uint8_t xy_high = packet[4];
+    int16_t x = ((xy_high & 0x0F) << 8) | x_low;
+    int16_t y = ((xy_high & 0xF0) << 4) | y_low;
+    int8_t z = (uint8_t)(packet[5] & 0x1F);
+
+    LOG_DBG("button: %d, x: %d y: %d z: %d", btn, x, y, z);
+    if (data->in_int) {
+        LOG_DBG("Clearing status bit");
+        ret = pinnacle_clear_status(dev);
+        data->in_int = true;
+    }
+
+    if (!config->no_taps && (btn || data->btn_cache)) {
+        for (int i = 0; i < 3; i++) {
+            uint8_t btn_val = btn & BIT(i);
+            if (btn_val != (data->btn_cache & BIT(i))) {
+                input_report_key(dev, INPUT_BTN_0 + i, btn_val ? 1 : 0, false, K_FOREVER);
+            }
+        }
+    }
+
+    data->btn_cache = btn;
+    if (z > 0) {
+        if (x < config->absolute_mode_clamp_min_x) {
+            x = config->absolute_mode_clamp_min_x;
+        } else if (x > config->absolute_mode_clamp_max_x) {
+            x = config->absolute_mode_clamp_max_x;
+        }
+        if (y < config->absolute_mode_clamp_min_y) {
+            y = config->absolute_mode_clamp_min_y;
+        } else if (y > config->absolute_mode_clamp_max_y) {
+            y = config->absolute_mode_clamp_max_y;
+        }
+
+        // scale to be in the configured interval
+        x = ((x - config->absolute_mode_clamp_min_x) * config->absolute_mode_scale_to_width) / (config->absolute_mode_clamp_max_x - config->absolute_mode_clamp_min_x);
+        y = ((y - config->absolute_mode_clamp_min_y) * config->absolute_mode_scale_to_height) / (config->absolute_mode_clamp_max_y - config->absolute_mode_clamp_min_y);
+
+        input_report_abs(dev, INPUT_ABS_X, x, false, K_FOREVER);
+        input_report_abs(dev, INPUT_ABS_Y, y, true, K_FOREVER);
+    }
+}
+
+static void pinnacle_report_data_rel(const struct device *dev) {
     const struct pinnacle_config *config = dev->config;
     uint8_t packet[3];
     int ret;
@@ -292,7 +358,14 @@ static void pinnacle_report_data(const struct device *dev) {
 
 static void pinnacle_work_cb(struct k_work *work) {
     struct pinnacle_data *data = CONTAINER_OF(work, struct pinnacle_data, work);
-    pinnacle_report_data(data->dev);
+    const struct device *dev = data->dev;
+    const struct pinnacle_config *config = dev->config;
+
+    if (config->absolute_mode) {
+        pinnacle_report_data_abs(dev);
+    } else {
+        pinnacle_report_data_rel(dev);
+    }
 }
 
 static void pinnacle_gpio_cb(const struct device *port, struct gpio_callback *cb, uint32_t pins) {
@@ -480,7 +553,7 @@ static int pinnacle_init(const struct device *dev) {
 
     uint8_t packet[1];
     ret = pinnacle_seq_read(dev, PINNACLE_SLEEP_INTERVAL, packet, 1);
-
+ 
     if (ret >= 0) {
         LOG_DBG("Default sleep interval %d", packet[0]);
     }
@@ -508,6 +581,12 @@ static int pinnacle_init(const struct device *dev) {
         return ret;
     }
     uint8_t feed_cfg1 = PINNACLE_FEED_CFG1_EN_FEED;
+    if (config->absolute_mode) {
+        feed_cfg1 |= PINNACLE_FEED_CFG1_ABS_MODE;
+        LOG_ERR("Using absolute mode");
+    } else {
+        LOG_ERR("Using relative mode");
+    }
     if (config->x_invert) {
         feed_cfg1 |= PINNACLE_FEED_CFG1_INV_X;
     }
@@ -576,6 +655,13 @@ static int pinnacle_pm_action(const struct device *dev, enum pm_device_action ac
         .sleep_en = DT_INST_PROP(n, sleep),                                                        \
         .no_taps = DT_INST_PROP(n, no_taps),                                                       \
         .no_secondary_tap = DT_INST_PROP(n, no_secondary_tap),                                     \
+        .absolute_mode = DT_INST_PROP(n, absolute_mode),                                           \
+        .absolute_mode_scale_to_width = DT_INST_PROP(n, absolute_mode_scale_to_width),             \
+        .absolute_mode_scale_to_height = DT_INST_PROP(n, absolute_mode_scale_to_height),           \
+        .absolute_mode_clamp_min_x = DT_INST_PROP(n, absolute_mode_clamp_min_x),                   \
+        .absolute_mode_clamp_max_x = DT_INST_PROP(n, absolute_mode_clamp_max_x),                   \
+        .absolute_mode_clamp_min_y = DT_INST_PROP(n, absolute_mode_clamp_min_y),                   \
+        .absolute_mode_clamp_max_y = DT_INST_PROP(n, absolute_mode_clamp_max_y),                   \
         .x_axis_z_min = DT_INST_PROP_OR(n, x_axis_z_min, 5),                                       \
         .y_axis_z_min = DT_INST_PROP_OR(n, y_axis_z_min, 4),                                       \
         .sensitivity = DT_INST_ENUM_IDX_OR(n, sensitivity, PINNACLE_SENSITIVITY_1X),               \
